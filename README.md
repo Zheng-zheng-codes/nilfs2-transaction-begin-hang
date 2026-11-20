@@ -103,6 +103,8 @@ External unlimited-budget reproduction of the pipeline crash
   72 replay + 1 priming program, 2026-11-20T08:05:31Z
 - independent fresh-VM verification inside the external run:
   **2/2 target hits** (2026-11-20T07:46:46Z, 07:50:15Z)
+- stability verification on fresh VMs: **5/5** hits, 187-194 s each
+  (2026-11-20); see `external-verify/`
 - evidence: `reproducer/repro.outcomes.jsonl`, `logs/external-manager-session.log`
 
 ## Kernel / guest details

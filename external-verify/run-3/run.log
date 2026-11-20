@@ -1,0 +1,6 @@
+[2026-11-20 09:41:24] tag=nilfs-run3 prog=/workspace/kernsight_workspace_7.4-rc3/runs/external-repro-nilfs-transaction-begin-20261120/crashes/b938319ea34db0b459c1fd8e695defec4dc1c8fc/repro.kernsight.prog sha=c7758304625d778787532ff84b1754149d758980fad7337b44b1f290ccbc392d runsec=900 procs=1 repeat=1 cores=24-31 port=12943
+[2026-11-20 09:42:22] ssh-up after 18s
+[2026-11-20 09:42:26] starting syz-execprog (detached)
+STARTED
+[2026-11-20 09:45:33] exec elapsed=187s hit=1
+[2026-11-20 09:45:37] TARGET-HIT: nilfs_transaction_begin+0x

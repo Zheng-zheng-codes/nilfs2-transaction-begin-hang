@@ -20,7 +20,7 @@ QEMU command line:
     -display none -vga none -serial file:serial.log -no-reboot
 
 reproducer execution (in the guest, as root):
-  syz-execprog -repeat=1 reproducer/repro.kernsight.prog
+  syz-execprog -procs=1 -repeat=1 reproducer/repro.kernsight.prog
 
 The reproducer is a state-reconstruction recipe: 72 replay programs plus
 one model-selected priming program, followed by the crashing testcase.
