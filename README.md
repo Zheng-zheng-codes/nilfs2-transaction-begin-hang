@@ -7,14 +7,13 @@ VMs.
 ## Summary
 
 A NILFS2 writer blocks for more than 140 seconds acquiring the segment
-constructor semaphore for reading:
+constructor semaphore for reading (reproducer/repro.report):
 
 ```text
-INFO: task syz.5.2623:50371 blocked for more than 143 seconds.
-task:syz.5.2623 state:D
+INFO: task syz.7.24:13081 blocked for more than 142 seconds.
+task:syz.7.24        state:D stack:23176 pid:13081 tgid:13075 ppid:10344
 Call Trace:
  rwsem_down_read_slowpath
- __down_read
  down_read
  nilfs_transaction_begin+0x323/0xa00 fs/nilfs2/segment.c:221
  nilfs_write_begin+0x78/0x1b0 fs/nilfs2/inode.c:228
@@ -23,21 +22,30 @@ Call Trace:
  ksys_write
 ```
 
-A second blocked task sits inside the construction path itself
-(`nilfs_ioctl` -> `nilfs_segctor_construct` ->
-`nilfs_segctor_do_construct+0x16ef/0x74f0 fs/nilfs2/segment.c:2139`,
-which is the `nilfs_segctor_assign()` step).
+A second thread of the same process (PID 13109) is blocked on the
+`f_pos_lock` held by PID 13081.
 
-The lock dump identifies who holds the semaphore:
+An NMI backtrace of the semaphore holder (PID 13190) shows that it is
+executing the NILFS2 segment-constructor path through
+`nilfs_clean_segments()`, including btree/bmap propagation:
+
+```text
+ nilfs_segctor_apply_buffers fs/nilfs2/segment.c:1010
+ nilfs_collect_file_data fs/nilfs2/segment.c:589
+ nilfs_bmap_propagate fs/nilfs2/bmap.c:329
+ nilfs_btree_propagate fs/nilfs2/btree.c:2128
+```
+
+The lock dump identifies the holder:
 
 ```text
 locks held by syz.7.24/13190: 3:
- #0: (sb_writers#17)                 at: nilfs_ioctl_clean_segments
-                                         fs/nilfs2/ioctl.c:869
- #1: (&nilfs->ns_segctor_sem) WRITE  at: nilfs_transaction_lock
-                                         fs/nilfs2/segment.c:357
- #2: (&bmap->b_sem)                  at: nilfs_bmap_assign
-                                         fs/nilfs2/bmap.c:373
+ #0: (sb_writers#17)                at: nilfs_ioctl_clean_segments
+                                        fs/nilfs2/ioctl.c:869
+ #1: (&nilfs->ns_segctor_sem) WRITE at: nilfs_transaction_lock
+                                        fs/nilfs2/segment.c:357
+ #2: (&bmap->b_sem)                 at: nilfs_bmap_assign
+                                        fs/nilfs2/bmap.c:373
 ```
 
 So a `NILFS_IOCTL_CLEAN_SEGMENTS` task is inside the segment-constructor
@@ -46,28 +54,32 @@ and normal writers cannot acquire the semaphore for reading.  The
 background `segctord` thread is alive in this report (it is not one of
 the blocked tasks).
 
-## Relation to the previously reported nilfs_segctor_thread hang
+## Relation to the earlier nilfs_segctor_thread hang
 
-A related report was filed earlier for the same tree and config:
+We previously reported a related NILFS2 hang on the same tree and
+config:
 
   INFO: task hung in nilfs_segctor_thread (fs/nilfs2/segment.c:357)
+  https://github.com/nilfs-dev/nilfs2/issues/182
   https://github.com/Zheng-zheng-codes/nilfs2-segctor-thread-hang
 
-The two reports differ in call chain and blocking point:
+The two reports involve different blocked tasks:
 
-| | segctor_thread hang | this report |
-|---|---|---|
-| blocked task | `segctord` kthread | normal writer(s) via `nilfs_write_begin` |
-| blocking site | `down_write(ns_segctor_sem)` in `nilfs_transaction_lock()` (segment.c:357) | `down_read(ns_segctor_sem)` in `nilfs_transaction_begin()` (segment.c:221) |
-| holder seen in dump | task in `nilfs_ioctl_clean_segments()` holding `sb_writers` | task in `nilfs_ioctl_clean_segments()` holding `ns_segctor_sem` (write) + `bmap->b_sem` at `nilfs_bmap_assign()` |
+- In the earlier report, the segctord kernel thread waits for
+  `ns_segctor_sem` in write mode in `nilfs_transaction_lock()`.
+- In this report, a normal file writer waits for the same semaphore in
+  read mode in `nilfs_transaction_begin()`.
 
-Both are two opposite sides of the same `ns_segctor_sem` starving behind
-an extended hold by the clean-segments ioctl path.  We therefore suspect
-a shared root cause (the `NILFS_IOCTL_CLEAN_SEGMENTS` path holding the
-semaphore for too long, e.g. across the bmap assignment / segment
-cleaning work; the earlier report's serial log showed repeated
-`NILFS (loop6): error -28 cleaning segments`), while the two hang
-reports themselves are separate symptoms and are filed as such.
+In both reports, the lock dump identifies a task executing
+`NILFS_IOCTL_CLEAN_SEGMENTS` as the semaphore holder.  The external
+verification logs of this report also repeatedly report:
+
+  NILFS (loop0): error -28 cleaning segments
+
+which resembles the repeated -ENOSPC errors observed in the earlier
+report.  We suspect that both hangs may be manifestations of the same
+GC error-handling problem, but the root cause has not yet been
+established.
 
 C reproducer: not generated; the syzkaller recipe below is the primary
 reproducer.
@@ -79,7 +91,11 @@ reproducer.
 
   # boot v7.4-rc3 with the supplied kernel config (Debian trixie x86_64)
   # in the guest, as root:
-  syz-execprog -repeat=1 reproducer/repro.kernsight.prog
+  syz-execprog -procs=1 -threaded -repeat=1 \
+      -executor ./syz-executor reproducer/repro.kernsight.prog
+
+The recipe requires sequential execution with `-procs=1`.  Using
+`-procs=8` did not reproduce the hang under our tests.
 
 `repro.kernsight.prog` is a self-contained state-reconstruction recipe:
 72 replay programs plus one model-selected state-construction program,
@@ -93,19 +109,18 @@ testcase alone is not sufficient.
 
 ## Verification
 
-External unlimited-budget reproduction of the pipeline crash
-(b938319ea34db0b459c1fd8e695defec4dc1c8fc):
+Reproduction of the reported hang (evidence ID
+b938319ea34db0b459c1fd8e695defec4dc1c8fc):
 
-- pipeline (20-minute budget): triggered on 11-19/11-20, never verified
-- external run, attempt 1: `confirmed=true`, `status=verified`,
-  72 replay + 1 priming program, 2026-11-20T07:17:00Z
-- external run, attempt 3: `confirmed=true`, `status=verified`,
-  72 replay + 1 priming program, 2026-11-20T08:05:31Z
-- independent fresh-VM verification inside the external run:
-  **2/2 target hits** (2026-11-20T07:46:46Z, 07:50:15Z)
+- external reproduction run: two attempts verified
+  (`confirmed=true`, `status=verified`), 2026-11-20T07:17:00Z and
+  2026-11-20T08:05:31Z; 72 replay + 1 priming program
+- independent fresh-VM verification inside that run: **2/2 target hits**
+  (2026-11-20T07:46:46Z, 07:50:15Z)
 - stability verification on fresh VMs: **5/5** hits, 187-194 s each
   (2026-11-20); see `external-verify/`
-- evidence: `reproducer/repro.outcomes.jsonl`, `logs/external-manager-session.log`
+- evidence: `reproducer/repro.outcomes.jsonl`,
+  `logs/external-manager-session.log`, `external-verify/`
 
 ## Kernel / guest details
 
