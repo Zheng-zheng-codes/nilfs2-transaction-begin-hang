@@ -1,3 +1,0 @@
-{"attempt":1,"confirmed":true,"primed":true,"priming_programs":1,"replay_programs":72,"status":"verified","time":"2026-11-20T07:17:00.07170404Z","title":"INFO: task hung in nilfs_transaction_begin"}
-{"attempt":2,"confirmed":false,"primed":true,"priming_programs":1,"replay_programs":71,"status":"triggered_unverified","time":"2026-11-20T07:38:00.577925114Z","title":"INFO: task hung in nilfs_transaction_begin"}
-{"attempt":3,"confirmed":true,"primed":true,"priming_programs":1,"replay_programs":72,"status":"verified","time":"2026-11-20T08:05:31.987606644Z","title":"INFO: task hung in nilfs_transaction_begin"}

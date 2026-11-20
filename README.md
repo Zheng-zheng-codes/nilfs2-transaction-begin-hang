@@ -109,18 +109,11 @@ testcase alone is not sufficient.
 
 ## Verification
 
-Reproduction of the reported hang (evidence ID
-b938319ea34db0b459c1fd8e695defec4dc1c8fc):
+Stability verification on fresh VMs (fresh qcow2 overlay per run,
+sequential recipe replay):
 
-- external reproduction run: two attempts verified
-  (`confirmed=true`, `status=verified`), 2026-11-20T07:17:00Z and
-  2026-11-20T08:05:31Z; 72 replay + 1 priming program
-- independent fresh-VM verification inside that run: **2/2 target hits**
-  (2026-11-20T07:46:46Z, 07:50:15Z)
-- stability verification on fresh VMs: **5/5** hits, 187-194 s each
-  (2026-11-20); see `external-verify/`
-- evidence: `reproducer/repro.outcomes.jsonl`,
-  `logs/external-manager-session.log`, `external-verify/`
+- five independent runs: **5/5** reproductions, 187-194 s to the
+  hung-task dump in every run (2026-11-20); see `external-verify/`
 
 ## Kernel / guest details
 
